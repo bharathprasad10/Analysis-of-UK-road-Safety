@@ -1,0 +1,264 @@
+---
+title: "Road accidents analysis using STATS19 data"
+author: "DABI_34"
+date: "12/18/2021"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Data
+
+For analysis, we are going to select three csv datasets from STATS19
+
+- Accidents data from 2015 - 2020
+- Casualtie data from 2015 - 2020
+- Road Safety Open Dataset data guide
+- RAS50002 dataset
+
+```{r, warning=FALSE, message=FALSE}
+library(tidyr)
+library(tidyverse)
+library(stringr)
+library(here)
+library(lubridate)
+library(viridis)
+library(readxl)
+```
+
+## Importing the data and initial cleaning
+
+```{r message=FALSE, warning=FALSE}
+df_accidents <- read.csv(here('Data',"dft-road-casualty-statistics-accident-last-5-years.csv"))
+
+df_casualty <- read_csv(here('Data',"dft-road-casualty-statistics-casualty-last-5-years.csv"))
+```
+
+Cleaning the data (removing unwanted columns)
+
+```{r warning=FALSE, message=FALSE}
+df_accidents_1 <- df_accidents %>% 
+  select(c("accident_index","accident_reference","accident_year","date","day_of_week","accident_severity","time","road_type","speed_limit","accident_year"))
+```
+
+```{r warning=FALSE, message=FALSE}
+df_casualty_1 <- df_casualty %>% 
+  select(c(accident_index,accident_reference ,age_band_of_casualty,casualty_class))
+```
+
+Merging accident data and casualty data by "accident_index", which is a unique number. Not that this makes sure we are analyzing casualties as well.
+
+```{r warning=FALSE, message=FALSE}
+df_accidents_1 <- df_accidents_1 %>% 
+  left_join(df_casualty_1, by = "accident_index")
+```
+
+## 1. Analysis based on Age bands and casualty class (2016 - 2020)
+
+Look-up mapping of age groups from data guide:
+
+```{r warning=FALSE, message=FALSE}
+age_groups <- function(age_number){
+  factor(
+    ifelse(age_number==1,"0 - 5",
+           ifelse(age_number==2,"6 - 10",
+                  ifelse(age_number==3,"11 - 15",
+                         ifelse(age_number==4,"16 - 20",
+                                ifelse(age_number==5,"21 - 25",
+                                       ifelse(age_number==6,"26 - 35",
+                                              ifelse(age_number==7,"36 - 45",
+                                                     ifelse(age_number==8,"46 - 55",
+                                                            ifelse(age_number==9,"56 - 65",
+                                                                   ifelse(age_number==10,"66 - 75",
+                                                                          ifelse(age_number==11,"Over 75",NA
+                                              ))))))))))),
+    levels=c("0 - 5","6 - 10","11 - 15","16 - 20","21 - 25","26 - 35","36 - 45","46 - 55","56 - 65","66 - 75","Over 75"))}
+
+```
+
+Look-up mapping of accident severity from data guide:
+
+```{r warning=FALSE, message=FALSE}
+df_accidents_1$accident_severity <- ifelse(df_accidents_1$accident_severity==1,"Fatal",
+                                    ifelse(df_accidents_1$accident_severity==2,"Serious",                                     ifelse(df_accidents_1$accident_severity==3,"Slight",NA
+                                             )))
+```
+
+Look-up mapping of casualty class from data guide:
+
+```{r warning=FALSE, message=FALSE}
+df_accidents_1$casualty_class <- ifelse(df_accidents_1$casualty_class==1,"Driver or rider",
+                                    ifelse(df_accidents_1$casualty_class==2,"Passenger",                                     ifelse(df_accidents_1$casualty_class==3,"Pedestrian",NA
+                                             )))
+```
+
+Removing wrong data:
+
+```{r warning=FALSE, message=FALSE}
+age_summary_3 <- df_accidents_1 %>% 
+  group_by(age_band_of_casualty,casualty_class) %>% 
+  summarise("n"=n())
+
+age_summary_3 <- age_summary_3 %>%
+  subset(age_band_of_casualty!= -1)
+```
+
+Plotting accident casualty count with respect to age bands and casualty class:
+
+```{r warning=FALSE, message=FALSE}
+age_summary_3$age_band_of_casualty_name <- age_groups(age_summary_3$age_band_of_casualty)
+
+  
+ age_summary_3 %>% 
+      group_by(age_band_of_casualty_name) %>% 
+   ggplot(aes(x = age_band_of_casualty_name, y = n,fill=casualty_class))+
+   geom_bar(stat="identity") + 
+   labs(title="Accident count by age bands", x="Age bands of casualties",y="Number of Accidents",fill="Casualty class") +
+   theme(plot.title = element_text(face = "bold", hjust = "0.5"))
+
+```
+
+## 2. Analysis based on severity
+
+```{r message=FALSE, warning=FALSE}
+df_accidents_1 %>% 
+  group_by(accident_severity, accident_year) %>% 
+  summarise("n"=n()) %>% 
+  ggplot(data=., aes(accident_year,n, fill = accident_severity)) + geom_bar(stat = "identity") + scale_y_continuous(labels = scales::comma) + labs(title="Accident severity for 5 years", x="Accident Year", y="Count", fill="Accident Severity") + theme(plot.title = element_text(face = "bold", hjust = "0.5"))
+```
+
+## 3. Number of accidents every hour per week day (2016-2020)
+
+```{r warning=FALSE, message=FALSE}
+hour_summary <- df_accidents_1 %>% 
+  mutate("Hour_data"=as.numeric(substr(as.character(time),1,2)))
+
+hour_plot <- ggplot(hour_summary,aes(x = Hour_data)) +
+      geom_histogram(bins = 30,
+                 color="black",
+                 binwidth=1,
+                 alpha = .8,
+                 ) +
+  labs(title="Accident count by hours per day", x="Hours per day",y="Number of Accidents") + theme(
+  panel.grid.major = element_line(size = 0.5, linetype = 'solid',
+                                  colour = "grey"), 
+  panel.grid.minor = element_line(size = 0.25, linetype = 'solid',
+                                  colour = "grey")) +
+  theme(plot.title = element_text(face = "bold", hjust = "0.5")) + scale_x_continuous(breaks = seq(from=0, to=24, by=2))
+hour_plot
+
+```
+
+Lookup-mapping of days of week from data guide:
+
+```{r warning=FALSE, message=FALSE}
+day_of_week_name <- function(week_day_no){
+  factor(
+    ifelse(week_day_no==1,"Sunday",
+           ifelse(week_day_no==2,"Monday",
+                  ifelse(week_day_no==3,"Tuesday",
+                         ifelse(week_day_no==4,"Wednesday",
+                                ifelse(week_day_no==5,"Thursday",
+                                       ifelse(week_day_no==6,"Friday",
+                                              ifelse(week_day_no==7,"Saturday",NA
+                                              ))))))),
+    levels=c("Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"))}
+```
+
+Creating columns for time series data:
+
+```{r warning=FALSE, message=FALSE}
+df_accidents_1$day_of_week_name <- day_of_week_name(df_accidents_1$day_of_week)
+
+df_accidents_1$Date <- dmy(as.character(df_accidents_1$date))
+
+df_accidents_1$Month <- factor(month(as.character(df_accidents_1$Date)))
+
+```
+
+Heat map with weekdays and hours:
+
+```{r warning=FALSE, message=FALSE}
+
+df_accidents_1 <- df_accidents_1 %>% 
+    mutate("Hour_data"=as.numeric(substr(as.character(time),1,2)))
+
+hour_week <- df_accidents_1 %>% 
+      group_by(Date,Hour_data,day_of_week_name) %>% 
+      summarise("n"=n()) %>% 
+      group_by(Hour_data,day_of_week_name) %>%
+      summarise("n"=mean(n)) 
+  
+df_accidents_1 %>% 
+  group_by(Date,Hour_data,day_of_week_name) %>% 
+  summarise("n"=n()) %>% 
+  group_by(Hour_data,day_of_week_name) %>%
+  summarise("n"=mean(n)) %>%    
+    ggplot(data=., aes(Hour_data,day_of_week_name, fill=n)) +
+      geom_tile() +
+      scale_fill_viridis(option="F") +
+      coord_fixed() +
+      labs(title="Mean Number of accidents per day by Hour and Day of the week",
+           x="Hour",y="Weekday",fill="Accidents per day")
+
+```
+
+## 4. Road type and speed limit 
+
+Remove rows with road_type = -1
+
+```{r warning=FALSE, message=FALSE}
+df_accidents_1 <- subset(df_accidents_1, road_type!=-1 & speed_limit!=-1)
+```
+
+Look-up mapping of road types from data guide:
+
+```{r warning=FALSE, message=FALSE}
+df_accidents_1$road_type_name <- ifelse(df_accidents_1$road_type==1,"Roundabout",
+       ifelse(df_accidents_1$road_type==2,"One way street",
+              ifelse(df_accidents_1$road_type==3,"Dual carriageway",
+                     ifelse(df_accidents_1$road_type==6,"Single carriageway",
+                            ifelse(df_accidents_1$road_type==7,"Slip road",
+                                   ifelse(df_accidents_1$road_type==9,"Unknown",
+                                          ifelse(df_accidents_1$road_type==12,"One way street/slip road",NA
+                     )))))))
+```
+
+Horizontal bar plot with accident count w.r.t road types, speed limits:
+
+```{r warning=FALSE, message=FALSE}
+road_type_speed_data <- df_accidents_1 %>% 
+  group_by(road_type_name,speed_limit) %>% 
+  summarise("n"=n()) %>% 
+  rowwise() %>% 
+  filter(speed_limit != "NULL" )
+  
+   
+  ggplot(road_type_speed_data,aes(x = road_type_name, y = n,fill=factor(speed_limit))) +
+    geom_col() + 
+    scale_fill_viridis(option="F", discrete=TRUE) + 
+    coord_flip() + 
+    labs(title="Accident count by road types", x="Type of Road",y="Number of Accidents",fill="Speed Limit") + 
+    scale_y_continuous(labels = scales::comma) + 
+    theme(plot.title = element_text(face = "bold", hjust = "0.5"))
+```
+
+## 5. Accident factors
+
+This data is taken from RAS50002 dataset (Contributory factors allocated to vehicles or pedestrians in reported accidents, Great Britain, 2016 - 2020).
+```{r message=FALSE, warning=FALSE}
+extra_dataset <- read_excel(here('Data',"extra_dataset.xlsx"))
+
+extra_dataset_1 <- extra_dataset %>% 
+  pivot_longer(!Factor, names_to = "Year", values_to = "Count")
+
+extra_dataset_1 %>% group_by(Year) %>% 
+  ggplot(aes(x = Year, y = Count, fill = Factor))+
+  geom_bar(stat = "identity")+
+  labs(title="Accident count by other factors", x="Year",y="Number of Accidents",fill="Factors") +
+  theme(plot.title = element_text(face = "bold", hjust = "0.5"))
+```
